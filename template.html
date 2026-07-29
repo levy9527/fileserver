@@ -7,9 +7,11 @@
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f5f5;color:#333;min-height:100vh}
-  .header{background:#fff;border-bottom:1px solid #e0e0e0;padding:16px 24px;position:sticky;top:0;z-index:10}
+  .header{background:#fff;border-bottom:1px solid #e0e0e0;padding:16px 24px;position:sticky;top:0;z-index:10;display:flex;align-items:flex-start;justify-content:space-between}
   .header h1{font-size:20px;font-weight:600}
   .header .path{color:#999;font-size:14px;margin-top:4px}
+  .msg-toggle{padding:6px 16px;background:#fff;color:#1976d2;border:1px solid #1976d2;border-radius:6px;font-size:14px;cursor:pointer;white-space:nowrap;flex-shrink:0}
+  .msg-toggle:hover{background:#e3f2fd}
   .container{max-width:960px;margin:0 auto;padding:24px}
   .card{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden}
   .row{display:flex;align-items:center;padding:12px 20px;border-bottom:1px solid #f0f0f0;transition:background 0.15s;text-decoration:none;color:inherit}
@@ -26,36 +28,39 @@
   .empty{padding:40px 20px;text-align:center;color:#bbb;font-size:14px}
   .back{display:inline-flex;align-items:center;gap:6px;color:#1976d2;text-decoration:none;font-size:14px;margin-bottom:16px}
   .back:hover{opacity:0.8}
-  .msg-board{margin-top:20px}
-  .msg-board.collapsed .msg-body{display:none}
-  .msg-board.collapsed .msg-arrow{transform:rotate(0deg)}
-  .msg-board:not(.collapsed) .msg-arrow{transform:rotate(90deg)}
-  .msg-header{display:flex;align-items:center;gap:8px;padding:12px 20px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);cursor:pointer;user-select:none}
-  .msg-header:hover{background:#f9f9f9}
-  .msg-title{font-size:15px;font-weight:600}
-  .msg-count{font-size:13px;color:#999}
-  .msg-arrow{margin-left:auto;transition:transform 0.2s;font-size:12px;color:#999}
-  .msg-body{margin-top:12px}
-  .msg-input-row{display:flex;gap:8px;margin-bottom:16px}
+
+  .drawer-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.3);z-index:100;opacity:0;visibility:hidden;transition:opacity 0.25s,visibility 0.25s}
+  .drawer-overlay.open{opacity:1;visibility:visible}
+  .drawer{position:fixed;top:0;right:0;width:420px;max-width:100vw;height:100vh;background:#fff;box-shadow:-2px 0 8px rgba(0,0,0,0.15);z-index:101;transform:translateX(100%);transition:transform 0.25s ease;display:flex;flex-direction:column}
+  .drawer.open{transform:translateX(0)}
+  .drawer-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e0e0e0;font-size:16px;font-weight:600;flex-shrink:0}
+  .drawer-header .count{font-weight:400;font-size:13px;color:#999;margin-left:4px}
+  .drawer-close{background:none;border:none;font-size:18px;color:#999;cursor:pointer;padding:4px 8px}
+  .drawer-close:hover{color:#333}
+  .drawer-body{flex:1;overflow-y:auto;padding:16px 20px}
+  .msg-input-row{display:flex;gap:8px;margin-bottom:20px}
   .msg-input-row textarea{flex:1;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit}
   .msg-input-row textarea:focus{outline:none;border-color:#1976d2}
   .msg-input-row button{padding:8px 20px;background:#1976d2;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;white-space:nowrap;align-self:flex-end}
   .msg-input-row button:hover{background:#1565c0}
-  .msg-item{background:#fff;padding:12px 16px;margin-bottom:8px;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,0.05)}
-  .msg-meta{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:#999}
+  .msg-item{background:#f9f9f9;padding:12px 16px;margin-bottom:10px;border-radius:6px}
+  .msg-meta{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:#999;flex-wrap:wrap}
   .msg-author{color:#1976d2;font-weight:500}
   .msg-time{color:#bbb}
   .msg-delete{margin-left:auto;background:none;border:none;color:#ccc;cursor:pointer;font-size:14px;padding:2px 4px}
   .msg-delete:hover{color:#e53935}
   .msg-content{font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
-  .msg-empty{text-align:center;color:#bbb;font-size:13px;padding:20px}
+  .msg-empty{text-align:center;color:#bbb;font-size:13px;padding:40px 20px}
   @media(min-width:600px){.time{display:block}}
 </style>
 </head>
 <body>
 <div class="header">
-  <h1>📁 File Server</h1>
-  <div class="path">/{{.Path}}</div>
+  <div>
+    <h1>📁 File Server</h1>
+    <div class="path">/{{.Path}}</div>
+  </div>
+  <button class="msg-toggle" onclick="openDrawer()">💬 留言</button>
 </div>
 <div class="container">
   {{if .Path}}
@@ -85,21 +90,21 @@
     <div class="empty">此目录为空</div>
     {{end}}
   </div>
+</div>
 
-  <div class="msg-board collapsed" id="msgBoard">
-    <div class="msg-header" onclick="toggleMsgBoard()">
-      <span class="msg-title">💬 留言板</span>
-      <span class="msg-count" id="msgCount">(0条)</span>
-      <span class="msg-arrow">▶</span>
+<div class="drawer-overlay" id="overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <div>💬 留言板<span class="count" id="msgCount">(0条)</span></div>
+    <button class="drawer-close" onclick="closeDrawer()">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="msg-input-row">
+      <textarea id="msgInput" placeholder="输入消息… Ctrl+Enter 发送" rows="2"></textarea>
+      <button onclick="sendMessage()">发送</button>
     </div>
-    <div class="msg-body">
-      <div class="msg-input-row">
-        <textarea id="msgInput" placeholder="输入消息… Ctrl+Enter 发送" rows="2"></textarea>
-        <button onclick="sendMessage()">发送</button>
-      </div>
-      <div class="msg-list" id="msgList">
-        <div class="msg-empty">暂无消息</div>
-      </div>
+    <div class="msg-list" id="msgList">
+      <div class="msg-empty">暂无消息</div>
     </div>
   </div>
 </div>
@@ -115,7 +120,7 @@ async function loadMessages() {
 
 function renderMessages() {
   const count = document.getElementById('msgCount');
-  count.textContent = `(${messages.length}条)`;
+  count.textContent = '(' + messages.length + '条)';
 
   const list = document.getElementById('msgList');
   if (messages.length === 0) {
@@ -123,33 +128,33 @@ function renderMessages() {
     return;
   }
 
-  list.innerHTML = messages.map(m =>
-    '<div class="msg-item">' +
-    '<div class="msg-meta">' +
-    '<span class="msg-author">' + esc(m.ip) + ' / ' + esc(m.os) + ' ' + esc(m.arch) + '</span>' +
-    '<span class="msg-time">' + esc(m.created_at) + '</span>' +
-    '<button class="msg-delete" onclick="deleteMessage(' + m.id + ')" title="删除">✕</button>' +
-    '</div>' +
-    '<div class="msg-content">' + esc(m.content) + '</div>' +
-    '</div>'
-  ).join('');
+  list.innerHTML = messages.map(function(m) {
+    return '<div class="msg-item">' +
+      '<div class="msg-meta">' +
+      '<span class="msg-author">' + esc(m.ip) + ' / ' + esc(m.os) + '</span>' +
+      '<span class="msg-time">' + esc(m.created_at) + '</span>' +
+      '<button class="msg-delete" onclick="deleteMessage(' + m.id + ')" title="删除">✕</button>' +
+      '</div>' +
+      '<div class="msg-content">' + esc(m.content) + '</div>' +
+      '</div>';
+  }).join('');
 }
 
 function esc(text) {
-  const div = document.createElement('div');
+  var div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
 }
 
 async function sendMessage() {
-  const input = document.getElementById('msgInput');
-  const content = input.value.trim();
+  var input = document.getElementById('msgInput');
+  var content = input.value.trim();
   if (!content) return;
 
-  const res = await fetch('/api/messages', {
+  var res = await fetch('/api/messages', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({content})
+    body: JSON.stringify({content: content})
   });
   if (res.ok) {
     input.value = '';
@@ -162,13 +167,28 @@ async function deleteMessage(id) {
   await loadMessages();
 }
 
-function toggleMsgBoard() {
-  document.getElementById('msgBoard').classList.toggle('collapsed');
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('msgInput').focus();
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+  document.body.style.overflow = '';
 }
 
 document.getElementById('msgInput').addEventListener('keydown', function(e) {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     sendMessage();
+  }
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeDrawer();
   }
 });
 

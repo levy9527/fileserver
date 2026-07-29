@@ -26,7 +26,6 @@ type Message struct {
 	Content   string `json:"content"`
 	IP        string `json:"ip"`
 	OS        string `json:"os"`
-	Arch      string `json:"arch"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -60,7 +59,7 @@ func (ms *MessageStore) save() {
 	os.WriteFile(ms.path, data, 0644)
 }
 
-func (ms *MessageStore) add(content, ip, osName, arch string) Message {
+func (ms *MessageStore) add(content, ip, osName string) Message {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	msg := Message{
@@ -68,7 +67,6 @@ func (ms *MessageStore) add(content, ip, osName, arch string) Message {
 		Content:   content,
 		IP:        ip,
 		OS:        osName,
-		Arch:      arch,
 		CreatedAt: time.Now().Format("01-02 15:04:05"),
 	}
 	ms.messages = append(ms.messages, msg)
@@ -199,36 +197,27 @@ func extractIP(r *http.Request) string {
 	return ip
 }
 
-func parseUA(ua string) (osName, arch string) {
+func parseUA(ua string) string {
 	switch {
 	case strings.Contains(ua, "Windows NT 10"):
-		osName = "Windows 10/11"
+		return "Windows 10/11"
 	case strings.Contains(ua, "Windows NT 6.3"):
-		osName = "Windows 8.1"
+		return "Windows 8.1"
 	case strings.Contains(ua, "Windows NT 6.1"):
-		osName = "Windows 7"
+		return "Windows 7"
 	case strings.Contains(ua, "Windows"):
-		osName = "Windows"
+		return "Windows"
 	case strings.Contains(ua, "Android"):
-		osName = "Android"
+		return "Android"
 	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad"):
-		osName = "iOS"
+		return "iOS"
 	case strings.Contains(ua, "Mac OS X") || strings.Contains(ua, "Macintosh"):
-		osName = "macOS"
+		return "macOS"
 	case strings.Contains(ua, "Linux"):
-		osName = "Linux"
+		return "Linux"
 	default:
-		osName = "Unknown"
+		return "Unknown"
 	}
-	switch {
-	case strings.Contains(ua, "aarch64") || strings.Contains(ua, "arm64") || strings.Contains(ua, "ARM64"):
-		arch = "arm64"
-	case strings.Contains(ua, "x86_64") || strings.Contains(ua, "x64") || strings.Contains(ua, "Win64") || strings.Contains(ua, "amd64") || strings.Contains(ua, "Intel"):
-		arch = "amd64"
-	default:
-		arch = "Unknown"
-	}
-	return
 }
 
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
@@ -246,8 +235,8 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ip := extractIP(r)
-		osName, arch := parseUA(r.UserAgent())
-		msg := msgStore.add(req.Content, ip, osName, arch)
+		osName := parseUA(r.UserAgent())
+		msg := msgStore.add(req.Content, ip, osName)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(msg)
 	case http.MethodDelete:
