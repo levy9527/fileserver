@@ -160,13 +160,20 @@ function esc(text) {
 
 async function copyContent(el) {
   var text = el.textContent;
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
   try {
-    await navigator.clipboard.writeText(text);
+    document.execCommand('copy');
     el.style.background = '#e8f5e9';
     setTimeout(function() { el.style.background = ''; }, 600);
   } catch(e) {
     alert('复制失败，请手动复制');
   }
+  document.body.removeChild(ta);
 }
 
 async function sendMessage() {
