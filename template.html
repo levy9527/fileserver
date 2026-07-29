@@ -49,7 +49,8 @@
   .msg-time{color:#bbb}
   .msg-delete{margin-left:auto;background:none;border:none;color:#ccc;cursor:pointer;font-size:14px;padding:2px 4px}
   .msg-delete:hover{color:#e53935}
-  .msg-content{font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-all}
+  .msg-content{font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-all;cursor:pointer;border-radius:4px;padding:2px 4px;margin:-2px -4px;transition:background 0.2s}
+  .msg-content:hover{background:#e3f2fd}
   .msg-empty{text-align:center;color:#bbb;font-size:13px;padding:40px 20px}
   @media(min-width:600px){.time{display:block}}
 </style>
@@ -111,6 +112,14 @@
 
 <script>
 let messages = [];
+let currentIp = '';
+
+async function init() {
+  var res = await fetch('/api/whoami');
+  var data = await res.json();
+  currentIp = data.ip;
+  loadMessages();
+}
 
 async function loadMessages() {
   const res = await fetch('/api/messages');
@@ -129,13 +138,16 @@ function renderMessages() {
   }
 
   list.innerHTML = messages.map(function(m) {
+    var delBtn = m.ip === currentIp
+      ? '<button class="msg-delete" onclick="deleteMessage(' + m.id + ')" title="删除">✕</button>'
+      : '';
     return '<div class="msg-item">' +
       '<div class="msg-meta">' +
       '<span class="msg-author">' + esc(m.ip) + ' / ' + esc(m.os) + '</span>' +
       '<span class="msg-time">' + esc(m.created_at) + '</span>' +
-      '<button class="msg-delete" onclick="deleteMessage(' + m.id + ')" title="删除">✕</button>' +
+      delBtn +
       '</div>' +
-      '<div class="msg-content">' + esc(m.content) + '</div>' +
+      '<div class="msg-content" onclick="copyContent(this)" title="点击复制">' + esc(m.content) + '</div>' +
       '</div>';
   }).join('');
 }
@@ -144,6 +156,17 @@ function esc(text) {
   var div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+async function copyContent(el) {
+  var text = el.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    el.style.background = '#e8f5e9';
+    setTimeout(function() { el.style.background = ''; }, 600);
+  } catch(e) {
+    alert('复制失败，请手动复制');
+  }
 }
 
 async function sendMessage() {
@@ -163,7 +186,11 @@ async function sendMessage() {
 }
 
 async function deleteMessage(id) {
-  await fetch('/api/messages?id=' + id, {method: 'DELETE'});
+  var res = await fetch('/api/messages?id=' + id, {method: 'DELETE'});
+  if (!res.ok) {
+    alert('只能删除自己创建的消息');
+    return;
+  }
   await loadMessages();
 }
 
@@ -192,7 +219,7 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-loadMessages();
+init();
 </script>
 </body>
 </html>

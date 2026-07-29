@@ -74,6 +74,17 @@ func (ms *MessageStore) add(content, ip, osName string) Message {
 	return msg
 }
 
+func (ms *MessageStore) find(id int64) (Message, bool) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	for _, m := range ms.messages {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return Message{}, false
+}
+
 func (ms *MessageStore) delete(id int64) bool {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -250,14 +261,28 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
-		if !msgStore.delete(id) {
+		msg, found := msgStore.find(id)
+		if !found {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if msg.IP != extractIP(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		msgStore.delete(id)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func whoamiHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"ip": extractIP(r),
+		"os": parseUA(r.UserAgent()),
+	})
 }
 
 func main() {
@@ -288,6 +313,7 @@ func main() {
 	mux.Handle("/dl/", http.StripPrefix("/dl/", http.FileServer(http.Dir(absRoot))))
 	msgStore = newMessageStore(filepath.Join(absRoot, ".messages.json"))
 	mux.HandleFunc("/api/messages", messagesHandler)
+	mux.HandleFunc("/api/whoami", whoamiHandler)
 	mux.HandleFunc("/", dirHandler(root))
 
 	listener, err := net.Listen("tcp", ":"+port)
