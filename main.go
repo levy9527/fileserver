@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net"
@@ -9,13 +10,94 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 //go:embed template.html
 var templateFS embed.FS
 
 var tmpl = template.Must(template.ParseFS(templateFS, "template.html"))
+
+type Message struct {
+	ID        int64  `json:"id"`
+	Content   string `json:"content"`
+	IP        string `json:"ip"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	CreatedAt string `json:"created_at"`
+}
+
+type MessageStore struct {
+	mu       sync.RWMutex
+	path     string
+	messages []Message
+}
+
+var msgStore *MessageStore
+
+func newMessageStore(filePath string) *MessageStore {
+	ms := &MessageStore{path: filePath}
+	ms.load()
+	return ms
+}
+
+func (ms *MessageStore) load() {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	data, err := os.ReadFile(ms.path)
+	if err != nil {
+		ms.messages = []Message{}
+		return
+	}
+	json.Unmarshal(data, &ms.messages)
+}
+
+func (ms *MessageStore) save() {
+	data, _ := json.Marshal(ms.messages)
+	os.WriteFile(ms.path, data, 0644)
+}
+
+func (ms *MessageStore) add(content, ip, osName, arch string) Message {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	msg := Message{
+		ID:        time.Now().UnixMilli(),
+		Content:   content,
+		IP:        ip,
+		OS:        osName,
+		Arch:      arch,
+		CreatedAt: time.Now().Format("01-02 15:04:05"),
+	}
+	ms.messages = append(ms.messages, msg)
+	ms.save()
+	return msg
+}
+
+func (ms *MessageStore) delete(id int64) bool {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	for i, m := range ms.messages {
+		if m.ID == id {
+			ms.messages = append(ms.messages[:i], ms.messages[i+1:]...)
+			ms.save()
+			return true
+		}
+	}
+	return false
+}
+
+func (ms *MessageStore) getAll() []Message {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	result := make([]Message, len(ms.messages))
+	for i := len(ms.messages) - 1; i >= 0; i-- {
+		result[len(ms.messages)-1-i] = ms.messages[i]
+	}
+	return result
+}
 
 type FileInfo struct {
 	Name    string
@@ -79,6 +161,9 @@ func dirHandler(root string) http.HandlerFunc {
 
 		files := make([]FileInfo, 0, len(entries))
 		for _, e := range entries {
+			if e.Name() == ".messages.json" {
+				continue
+			}
 			info, err := e.Info()
 			if err != nil {
 				continue
@@ -99,6 +184,90 @@ func dirHandler(root string) http.HandlerFunc {
 		})
 
 		tmpl.Execute(w, PageData{Path: rel, Files: files})
+	}
+}
+
+func extractIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if strings.HasPrefix(ip, "[") {
+		if idx := strings.LastIndex(ip, "]:"); idx != -1 {
+			ip = ip[1:idx]
+		}
+	} else if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return ip
+}
+
+func parseUA(ua string) (osName, arch string) {
+	switch {
+	case strings.Contains(ua, "Windows NT 10"):
+		osName = "Windows 10/11"
+	case strings.Contains(ua, "Windows NT 6.3"):
+		osName = "Windows 8.1"
+	case strings.Contains(ua, "Windows NT 6.1"):
+		osName = "Windows 7"
+	case strings.Contains(ua, "Windows"):
+		osName = "Windows"
+	case strings.Contains(ua, "Android"):
+		osName = "Android"
+	case strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad"):
+		osName = "iOS"
+	case strings.Contains(ua, "Mac OS X") || strings.Contains(ua, "Macintosh"):
+		osName = "macOS"
+	case strings.Contains(ua, "Linux"):
+		osName = "Linux"
+	default:
+		osName = "Unknown"
+	}
+	switch {
+	case strings.Contains(ua, "aarch64") || strings.Contains(ua, "arm64") || strings.Contains(ua, "ARM64"):
+		arch = "arm64"
+	case strings.Contains(ua, "x86_64") || strings.Contains(ua, "x64") || strings.Contains(ua, "Win64") || strings.Contains(ua, "amd64") || strings.Contains(ua, "Intel"):
+		arch = "amd64"
+	default:
+		arch = "Unknown"
+	}
+	return
+}
+
+func messagesHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		msgs := msgStore.getAll()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(msgs)
+	case http.MethodPost:
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Content == "" {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		ip := extractIP(r)
+		osName, arch := parseUA(r.UserAgent())
+		msg := msgStore.add(req.Content, ip, osName, arch)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(msg)
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		if !msgStore.delete(id) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -128,6 +297,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.Handle("/dl/", http.StripPrefix("/dl/", http.FileServer(http.Dir(absRoot))))
+	msgStore = newMessageStore(filepath.Join(absRoot, ".messages.json"))
+	mux.HandleFunc("/api/messages", messagesHandler)
 	mux.HandleFunc("/", dirHandler(root))
 
 	listener, err := net.Listen("tcp", ":"+port)
