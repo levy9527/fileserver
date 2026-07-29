@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📁 File Server – {{.Path}}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f5f5;color:#333;min-height:100vh}
+  .header{background:#fff;border-bottom:1px solid #e0e0e0;padding:16px 24px;position:sticky;top:0;z-index:10}
+  .header h1{font-size:20px;font-weight:600}
+  .header .path{color:#999;font-size:14px;margin-top:4px}
+  .container{max-width:960px;margin:0 auto;padding:24px}
+  .card{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden}
+  .row{display:flex;align-items:center;padding:12px 20px;border-bottom:1px solid #f0f0f0;transition:background 0.15s;text-decoration:none;color:inherit}
+  .row:last-child{border-bottom:none}
+  .row:hover{background:#f9f9f9}
+  .row.dir{cursor:pointer}
+  .row.dir .name{color:#1976d2}
+  .icon{width:24px;text-align:center;margin-right:12px;font-size:18px;flex-shrink:0}
+  .name{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .size{width:100px;text-align:right;font-size:13px;color:#999;flex-shrink:0}
+  .time{width:180px;text-align:right;font-size:13px;color:#bbb;flex-shrink:0;display:none}
+  .dl-btn{padding:4px 14px;background:#1976d2;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;margin-left:16px;flex-shrink:0;white-space:nowrap}
+  .dl-btn:hover{background:#1565c0}
+  .empty{padding:40px 20px;text-align:center;color:#bbb;font-size:14px}
+  .back{display:inline-flex;align-items:center;gap:6px;color:#1976d2;text-decoration:none;font-size:14px;margin-bottom:16px}
+  .back:hover{opacity:0.8}
+  @media(min-width:600px){.time{display:block}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📁 File Server</h1>
+  <div class="path">/{{.Path}}</div>
+</div>
+<div class="container">
+  {{if .Path}}
+  <a class="back" href="../">← 返回上级目录</a>
+  {{end}}
+  <div class="card">
+    {{if .Files}}
+      {{range .Files}}
+        {{if .IsDir}}
+        <a class="row dir" href="/{{$.Path}}{{if $.Path}}/{{end}}{{.Name}}">
+          <span class="icon">📁</span>
+          <span class="name">{{.Name}}/</span>
+          <span class="size">—</span>
+          <span class="time">{{.ModTime}}</span>
+        </a>
+        {{else}}
+        <div class="row">
+          <span class="icon">📄</span>
+          <span class="name">{{.Name}}</span>
+          <span class="size">{{.Size}}</span>
+          <span class="time">{{.ModTime}}</span>
+          <a class="dl-btn" href="/dl/{{$.Path}}{{if $.Path}}/{{end}}{{.Name}}" download>下载</a>
+        </div>
+        {{end}}
+      {{end}}
+    {{else}}
+    <div class="empty">此目录为空</div>
+    {{end}}
+  </div>
+</div>
+</body>
+</html>
