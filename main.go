@@ -1,10 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -277,6 +279,88 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func zipDir(w *zip.Writer, absPath, zipPath string) error {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		entries, err := os.ReadDir(absPath)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.Name() == ".messages.json" {
+				continue
+			}
+			if err := zipDir(w, filepath.Join(absPath, e.Name()), filepath.Join(zipPath, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	file, err := os.Open(absPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
+	}
+	header.Name = filepath.ToSlash(zipPath)
+	header.Method = zip.Deflate
+	writer, err := w.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(writer, file)
+	return err
+}
+
+// zipHandler 将目录实时打包为 zip 并流式下载，路径经 /zip/ 前缀剥离
+func zipHandler(root string) http.HandlerFunc {
+	absRoot, _ := filepath.Abs(root)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		rel := strings.TrimPrefix(r.URL.Path, "/zip/")
+		rel = filepath.Clean(rel)
+		if strings.HasPrefix(rel, "..") {
+			http.NotFound(w, r)
+			return
+		}
+
+		abs := filepath.Join(absRoot, rel)
+		info, err := os.Stat(abs)
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+
+		name := filepath.Base(abs)
+		if !info.IsDir() {
+			name = strings.TrimSuffix(name, filepath.Ext(name))
+		}
+
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
+
+		zw := zip.NewWriter(w)
+		defer zw.Close()
+		if err := zipDir(zw, abs, name); err != nil {
+			// 头部可能已写入，无法再报错，仅终止
+			return
+		}
+	}
+}
+
 func whoamiHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -311,6 +395,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.Handle("/dl/", http.StripPrefix("/dl/", http.FileServer(http.Dir(absRoot))))
+	mux.HandleFunc("/zip/", zipHandler(root))
 	msgStore = newMessageStore(filepath.Join(absRoot, ".messages.json"))
 	mux.HandleFunc("/api/messages", messagesHandler)
 	mux.HandleFunc("/api/whoami", whoamiHandler)

@@ -19,6 +19,7 @@
   .row:hover{background:#f9f9f9}
   .row.dir{cursor:pointer}
   .row.dir .name{color:#1976d2}
+  .dir-name{color:#1976d2}
   .icon{width:24px;text-align:center;margin-right:12px;font-size:18px;flex-shrink:0}
   .name{flex:1;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .size{width:100px;text-align:right;font-size:13px;color:#999;flex-shrink:0}
@@ -71,12 +72,13 @@
     {{if .Files}}
       {{range .Files}}
         {{if .IsDir}}
-        <a class="row dir" href="/{{$.Path}}{{if $.Path}}/{{end}}{{.Name}}">
+        <div class="row">
           <span class="icon">📁</span>
-          <span class="name">{{.Name}}/</span>
+          <a class="name dir-name" href="/{{$.Path}}{{if $.Path}}/{{end}}{{.Name}}">{{.Name}}/</a>
           <span class="size">—</span>
           <span class="time">{{.ModTime}}</span>
-        </a>
+          <a class="dl-btn" href="/zip/{{$.Path}}{{if $.Path}}/{{end}}{{.Name}}" download>下载</a>
+        </div>
         {{else}}
         <div class="row">
           <span class="icon">📄</span>
