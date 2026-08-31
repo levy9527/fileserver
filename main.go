@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -41,6 +42,7 @@ var msgStore *MessageStore
 
 func newMessageStore(filePath string) *MessageStore {
 	ms := &MessageStore{path: filePath}
+	os.MkdirAll(filepath.Dir(filePath), 0700)
 	ms.load()
 	return ms
 }
@@ -58,7 +60,7 @@ func (ms *MessageStore) load() {
 
 func (ms *MessageStore) save() {
 	data, _ := json.Marshal(ms.messages)
-	os.WriteFile(ms.path, data, 0644)
+	os.WriteFile(ms.path, data, 0600)
 }
 
 func (ms *MessageStore) add(content, ip, osName string) Message {
@@ -159,7 +161,7 @@ func dirHandler(root string) http.HandlerFunc {
 		}
 
 		if !info.IsDir() {
-			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, info.Name()))
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": info.Name()}))
 			http.ServeFile(w, r, abs)
 			return
 		}
@@ -350,7 +352,7 @@ func zipHandler(root string) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name + ".zip"}))
 
 		zw := zip.NewWriter(w)
 		defer zw.Close()
@@ -359,6 +361,49 @@ func zipHandler(root string) http.HandlerFunc {
 			return
 		}
 	}
+}
+
+// messageStorePath 返回留言板存储路径，存于用户配置目录，独立于被服务的根目录，
+// 避免泄露给 /dl/ 等文件服务。
+func messageStorePath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		// 兜底：退回到可执行文件所在目录，保证不落在被服务目录树内。
+		exe, exeErr := os.Executable()
+		if exeErr != nil {
+			return filepath.Join(os.TempDir(), "fileserver", "messages.json")
+		}
+		dir = filepath.Dir(exe)
+	}
+	return filepath.Join(dir, "fileserver", "messages.json")
+}
+
+// migrateLegacyStore 将旧版存放在服务根目录里的 .messages.json 迁移到新位置一次。
+func migrateLegacyStore(absRoot, newPath string) {
+	legacy := filepath.Join(absRoot, ".messages.json")
+	if _, err := os.Stat(newPath); err == nil {
+		return // 新存储已存在，无需迁移
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil {
+		return // 无旧文件，直接使用新存储
+	}
+	os.MkdirAll(filepath.Dir(newPath), 0700)
+	if err := os.WriteFile(newPath, data, 0600); err != nil {
+		return
+	}
+	os.Remove(legacy)
+}
+
+// blockHiddenFile 加固文件服务，拒绝访问隐藏的消息存储文件（defense-in-depth）。
+func blockHiddenFile(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/.messages.json") || r.URL.Path == "/.messages.json" {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func whoamiHandler(w http.ResponseWriter, r *http.Request) {
@@ -392,11 +437,14 @@ func main() {
 
 	absRoot, _ := filepath.Abs(root)
 
+	storePath := messageStorePath()
+	migrateLegacyStore(absRoot, storePath)
+
 	mux := http.NewServeMux()
 
-	mux.Handle("/dl/", http.StripPrefix("/dl/", http.FileServer(http.Dir(absRoot))))
+	mux.Handle("/dl/", blockHiddenFile(http.StripPrefix("/dl/", http.FileServer(http.Dir(absRoot)))))
 	mux.HandleFunc("/zip/", zipHandler(root))
-	msgStore = newMessageStore(filepath.Join(absRoot, ".messages.json"))
+	msgStore = newMessageStore(storePath)
 	mux.HandleFunc("/api/messages", messagesHandler)
 	mux.HandleFunc("/api/whoami", whoamiHandler)
 	mux.HandleFunc("/", dirHandler(root))
