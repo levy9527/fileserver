@@ -7,14 +7,15 @@
 ## Build
 
 ```bash
-go build -o fileserver .
+# -ldflags="-s -w" 去掉符号表和 DWARF 调试信息，二进制约缩小 35%（12M → 7.9M）
+go build -ldflags="-s -w" -o fileserver .
 ```
 
 ## Cross-compile
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o fileserver-linux .
-GOOS=windows GOARCH=amd64 go build -o fileserver.exe .
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o fileserver-linux .
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o fileserver.exe .
 ```
 
 ## Usage
