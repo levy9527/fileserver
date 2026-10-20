@@ -418,8 +418,33 @@ func main() {
 	port := "8080"
 	root := "."
 
+	usage := func() {
+		fmt.Printf(`
+  📁 File Server - 内网文件浏览下载服务
+
+  Usage:
+    fileserver [options] [port]
+
+  Options:
+    -p, --port <port>   监听端口 (默认 8080)
+    -d, --dir  <dir>    要服务的目录 (默认当前目录 .)
+    -h, --help          显示本帮助
+
+  Examples:
+    fileserver                         服务当前目录, 端口 8080
+    fileserver -p 9000                 指定端口
+    fileserver -d /path/to/dir         指定目录
+    fileserver -p 9000 -d /data        同时指定
+    fileserver 9000                    省略 -p 直接写端口
+
+`)
+	}
+
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
+		case "-h", "--help":
+			usage()
+			return
 		case "-p", "--port":
 			if i+1 < len(os.Args) {
 				port = os.Args[i+1]
@@ -431,6 +456,11 @@ func main() {
 				i++
 			}
 		default:
+			if strings.HasPrefix(os.Args[i], "-") {
+				fmt.Fprintf(os.Stderr, "Unknown option: %s\n", os.Args[i])
+				usage()
+				os.Exit(1)
+			}
 			port = os.Args[i]
 		}
 	}
